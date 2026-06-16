@@ -31,13 +31,19 @@ class CreateSimulatedImages:
     bands: list[str]
     crop_size: int = 60
     resolution: int = 10
-    Ngals: int = 10
+    Ngals: int = 3
     add_poisson: bool = True
     add_psf: bool = True
+    add_thin: bool = False
+    add_bright: bool = False
+    add_PAUS_zp: bool = False
     add_constant_background: bool = True
+    add_PAUS_background: bool = False
     num_exposures: int = 3
     use_dask: bool = False
     calibrate_flux: bool = True
+    cal_error: bool = False
+    aperture_mask: bool = False
     output_dir: Path = Path("/data/astro/scratch2/lcabayol/NFphotoz/data/CHFT_sims")
 
     def __post_init__(self):
@@ -193,7 +199,12 @@ class CreateSimulatedImages:
         # Convert magnitudes to fluxes for non-PAU bands
         if not any("pau" in band.lower() for band in self.bands):
             mags = self._flux2mag(np.abs(photometry))
-            fluxes = self._mag2e(mags, self.zp)
+            
+            if self.add_PAUS_zp:
+                fluxes = self._mag2e(mags, self.PAUS_zp)
+            else:   
+                fluxes = self._mag2e(mags, self.zp)
+                
         else:
             fluxes = photometry
 
@@ -244,7 +255,11 @@ class CreateSimulatedImages:
 
     def _get_zero_point_calibration(self) -> float:
         """Get a random zero-point calibration value."""
-        return float(np.random.uniform(2, 4, 1))
+        if self.add_PAUS_zp:
+            return self.PAUS_zp
+
+        else:
+            return float(np.random.uniform(2, 4, 1))
 
     def _get_exp_time(self) -> np.ndarray:
         """
@@ -303,6 +318,37 @@ class CreateSimulatedImages:
         self.psfs = psfs
         return psfs
 
+    def _get_PAUS_background(self) -> dict[str, float]:
+        """
+        Get the cutout background.
+
+        Returns:
+            an 96x96 array of the background.
+        """
+        
+        PAUS_background = np.load(DATA_DIR / "cutout_background1.npy")
+        logger.info(
+            "Retrieved the PAUS background (added by Jiefeng)"
+        )
+        self.PAUS_background = PAUS_background        
+        return PAUS_background
+
+    def _get_PAUS_zp(self) -> dict[str, float]:
+        """
+        Sample the PAUS zp from the fitted PAUS zp histogram.
+        In the magnitude [17,23]. In the COSMOS field. 40 bands.
+
+        Returns:
+            a zp value.
+        """
+        
+        PAUS_zp_samples = np.load(DATA_DIR / "zpsamples.npy")
+        PAUS_zp = np.random.choice(PAUS_zp_samples)
+        logger.info(
+            "Retrieved the PAUS zp (added by Jiefeng)"
+        )
+        return PAUS_zp
+    
     def _simulate_exposure(
         self, photometry: pd.Series, morphology: pd.Series, band: str, zp: float = 1.0
     ) -> np.ndarray:
@@ -351,16 +397,30 @@ class CreateSimulatedImages:
 
         gal = gal_bulge + gal_disk
 
+        """if self.aperture_mask:
+
+                aa
+
+        """
+        
+        if self.add_thin:
+            gal = gal / 2
+
+        if self.add_bright:
+            gal = gal * 8
+
         if self.add_constant_background:
             bkg = (
-                np.random.uniform(1, 3)
+                np.random.uniform(3, 6)
                 * self.exp_time[ib]
                 / zp
                 * np.ones(
                     (self.crop_size * self.resolution, self.crop_size * self.resolution)
                 )
             )
+            #bkg = np.random.poisson(bkg)
             gal += bkg
+            
 
         if self.add_psf:
             psf_size = self.resolution * psf / pix_scale
@@ -376,13 +436,39 @@ class CreateSimulatedImages:
             psf_grid = moff(self.psf_xgrid, self.psf_ygrid)
             gal = fftconvolve(gal, psf_grid, mode="same")
 
-        if self.add_poisson:
-            gal = np.random.poisson(gal)
-        
-        gal = block_reduce(gal, (self.resolution, self.resolution), np.mean)
-        gal /= self.exp_time[ib]
+            gal_clean = gal.copy()
+            
+            if self.add_poisson:
 
-        return gal
+                if self.cal_error: # we generate noisy galaxies to calculate the error
+                    gal_for_error = np.zeros((30, self.crop_size, self.crop_size))
+                    
+                    for i in range(30):
+                        gal_trans = np.random.poisson(gal)
+                        gal_trans = block_reduce(gal_trans, (self.resolution, self.resolution), np.mean)
+                        gal_trans /= self.exp_time[ib]
+                        gal_for_error[i] = gal_trans
+                        
+                        if self.add_PAUS_background:
+            
+                            gal_for_error[i] += self.PAUS_background
+                else:
+                    gal = np.random.poisson(gal)
+                    gal = block_reduce(gal, (self.resolution, self.resolution), np.mean)
+                    gal /= self.exp_time[ib]
+
+        gal_clean = block_reduce(gal_clean, (self.resolution, self.resolution), np.mean)
+        gal_clean /= self.exp_time[ib]
+
+        if self.add_PAUS_background:
+            
+            gal += self.PAUS_background
+                    
+        if self.cal_error:
+            return gal_for_error, gal_clean
+            
+        else:
+            return gal, gal_clean
 
     def _create_simulated_galaxy(
         self, ii, band, exp, photometry_row, morphology_row, zp
@@ -406,21 +492,47 @@ class CreateSimulatedImages:
             Zero point calibration value to apply to the simulated flux.
         """
         output_file = self.output_dir / f"data_{ii}" / f"cutout_{band}_exp{exp}.npy"
+        output_file_clean = self.output_dir / f"data_{ii}" / f"clean_cutout_{band}_exp{exp}.npy"
+
+        #to remove the edges
+        start = (120 - 96) // 2
+        end = start + 96
+        
         if not output_file.exists():
             # Simulate galaxy image
-            gal = self._simulate_exposure(
+            if self.cal_error: # calculate the error
+                gal_for_error, gal_clean = self._simulate_exposure(
                 photometry_row, morphology_row, band=band, zp=zp
-            )
+                )
+
+            else:
+                gal, gal_clean = self._simulate_exposure(
+                    photometry_row, morphology_row, band=band, zp=zp
+                )
 
             # Extract metadata
             metadata = np.c_[morphology_row["redshift"], photometry_row[band], zp]
 
             # Save simulated galaxy image and metadata
-            np.save(output_file, gal)
+            np.save(output_file_clean, gal_clean[start:end, start:end])
             np.save(
-                self.output_dir / f"data_{ii}" / f"metadata_{band}_exp{exp}.npy",
+                self.output_dir / f"data_{ii}" / f"clean_metadata_{band}_exp{exp}.npy",
                 metadata,
             )
+            
+            if self.cal_error:
+                np.save(output_file, gal_for_error[start:end, start:end])
+                np.save(
+                    self.output_dir / f"data_{ii}" / f"metadata_{band}_exp{exp}.npy",
+                    metadata,
+                )
+
+            else:
+                np.save(output_file, gal[start:end, start:end])
+                np.save(
+                    self.output_dir / f"data_{ii}" / f"metadata_{band}_exp{exp}.npy",
+                    metadata,
+                )
 
     def _create_simulated_catalogue(self, Ngals: int) -> None:
         """
@@ -503,6 +615,8 @@ class CreateSimulatedImages:
         self.psf = self._get_psf_arcsec()
         self.zp = self._get_zp()
         self.exp_time = self._get_exp_time()
+        self.PAUS_background = self._get_PAUS_background()
+        self.PAUS_zp = self._get_PAUS_zp()
         logger.info(
             "Retrieved pixel scale, PSF, zero point, and exposure time parameters"
         )

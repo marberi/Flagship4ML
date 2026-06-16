@@ -42,15 +42,22 @@ bands:
   - pau_nb835
   - pau_nb845
 
-crop_size: 60
+#crop_size: 96
+crop_size: 120
 resolution: 10
-Ngals: 2
+Ngals: 3
 
 add_poisson: true
 add_psf: true
 add_constant_background: true
+add_PAUS_background: false
+add_PAUS_zp: false
 num_exposures: 3
 use_dask: false
 calibrate_flux: true
+add_thin: false
+add_bright: true
+cal_error: false
+aperture_mask: false
 
 output_dir: "/Users/lauracabayol/Documents/data/test_sims"
