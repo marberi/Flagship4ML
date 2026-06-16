@@ -29,20 +29,6 @@ cd Flagship4ML
 pip install -e .
 ```
 
-## Updates from Jiefeng
-
-The order of the psf and the nosie addition.(The first update version)
-
-Added a real PAUS background (cutout_background1.npy), it is optional in the generation.
-
-Added real sampled zp (zpsamples.npy) using a fitted distribution of the PAUS zp (in the magnitude range [17,23] in the COSMOS field in 40 bands), it is optional in the generation.
-
-Added 'cal_error' option, which generates many exposures for a galaxy to calculate the flux error.
-
-Added image size modification, which cut the edges of the output images, to remove the 'drop flux' part. Originally we need to cut the edges by ourselves after the generation.
-
-Added the 'add_thin' and 'add_bright' options, to make the galaxy brighter or fainter (more visiable or less visible in the image).
-
 ## Usage
 
 To generate simulated images, you can use the `CreateSimulatedImages` class. Here's a basic example:
