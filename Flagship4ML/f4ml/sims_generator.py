@@ -412,11 +412,14 @@ class CreateSimulatedImages:
                 photometry_row, morphology_row, band=band, zp=zp
             )
 
+            h, w = gal.shape#get the h and w
+            crop = gal[12:h-12, 12:w-12]#the length of the edge is 12, it is adjustable
+
             # Extract metadata
             metadata = np.c_[morphology_row["redshift"], photometry_row[band], zp]
 
             # Save simulated galaxy image and metadata
-            np.save(output_file, gal)
+            np.save(output_file, crop)
             np.save(
                 self.output_dir / f"data_{ii}" / f"metadata_{band}_exp{exp}.npy",
                 metadata,
