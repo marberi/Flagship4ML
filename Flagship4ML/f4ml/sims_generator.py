@@ -412,8 +412,7 @@ class CreateSimulatedImages:
                 photometry_row, morphology_row, band=band, zp=zp
             )
 
-            h, w = gal.shape#get the h and w
-            crop = gal[12:h-12, 12:w-12]#the length of the edge is 12, it is adjustable
+            crop = gal[12:-12, 12:-12]#the length of the edge is 12, it is adjustable
 
             # Extract metadata
             metadata = np.c_[morphology_row["redshift"], photometry_row[band], zp]
