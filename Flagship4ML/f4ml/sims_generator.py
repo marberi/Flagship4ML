@@ -38,6 +38,7 @@ class CreateSimulatedImages:
     num_exposures: int = 3
     use_dask: bool = False
     calibrate_flux: bool = True
+    GAIN: float = 0.71
     output_dir: Path = Path("/data/astro/scratch2/lcabayol/NFphotoz/data/CHFT_sims")
 
     def __post_init__(self):
@@ -378,7 +379,8 @@ class CreateSimulatedImages:
 
         if self.add_poisson:
             gal = np.random.poisson(gal)
-        
+
+        gal = gal / self.GAIN
         gal = block_reduce(gal, (self.resolution, self.resolution), np.mean)
         gal /= self.exp_time[ib]
 
