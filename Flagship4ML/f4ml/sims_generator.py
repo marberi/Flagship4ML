@@ -377,11 +377,12 @@ class CreateSimulatedImages:
             psf_grid = moff(self.psf_xgrid, self.psf_ygrid)
             gal = fftconvolve(gal, psf_grid, mode="same")
 
+        gal = block_reduce(gal, (self.resolution, self.resolution), np.mean)
+        
         if self.add_poisson:
             gal = np.random.poisson(gal)
 
         gal = gal / self.GAIN
-        gal = block_reduce(gal, (self.resolution, self.resolution), np.mean)
         gal /= self.exp_time[ib]
 
         return gal
